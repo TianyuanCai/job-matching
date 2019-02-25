@@ -1,1 +1,3 @@
-# networking_email
+# Job Listing Scraping
+
+Used to scrape job listings. 
