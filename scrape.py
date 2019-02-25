@@ -6,17 +6,17 @@ import time
 import re
 
 # test
-URL = "https://www.indeed.com/jobs?q=data+scientist&l=New+York&start=10"
-page = requests.get(URL)
-soup = BeautifulSoup(page.text, "html.parser")
-print(soup.prettify())
+#URL = "https://www.indeed.com/jobs?q=data+scientist&l=New+York&start=10"
+#page = requests.get(URL)
+#soup = BeautifulSoup(page.text, "html.parser")
+#print(soup.prettify())
 
 # Execution
-max_results_per_city = 10
+max_results_per_city = 500
 title_set = ["data+scientist", "data+analyst", "product+analyst"]
-city_set = ['San+Francisco', 'Seattle', 'Portland', 'Los+Angeles', 'New+York','Chicago', 'Pittsburgh', 'Austin']
-# city_set = ['San+Francisco']
-columns = ["city", "company_name", "category", "job_title", "qualified", "app_link", "indeed_link"]
+#city_set = ['San+Francisco', 'Seattle', 'Portland', 'Los+Angeles', 'New+York','Chicago', 'Pittsburgh', 'Austin']
+city_set = ['San+Francisco']
+columns = ["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]
 df = pd.DataFrame(columns = columns)
 
 for title in title_set:
@@ -26,6 +26,8 @@ for title in title_set:
 			postings = []
 			app_links = []
 			qualified = []
+			languages = []
+			majors = []
 			companies = []
 
 			page = requests.get('https://www.indeed.com/jobs?q='+title + '&l=' + str(city) + '&start=' + str(start))
@@ -64,28 +66,38 @@ for title in title_set:
 						app_links.append("Unknown")
 
 					# Whether within 2 YOE and Bachlor
-					data = str(job_soup.findAll(text = True))
-					if re.search('[1-2].{1,10}(Y|y)ear', data) is not None:
-						if (re.search('((B|b)achelor)|BA',data) is not None or re.search('((M|m)aster)|MA|(PhD|phd|PHD)', data) is None):
+					data = str(job_soup.findAll(text = True)).lower()
+					if (re.search('(bachelor|ba)[^a-z0-9]', data) is not None or re.search('(master|ma|phd)[^a-z0-9]', data) is None):
+						if re.search('[1-2].{1,10}(Y|y)ear', data) is not None:
 							qualified.append("True")
 						else:
-							qualified.append("Need Advanced Degrees")
-					elif (re.search('((B|b)achelor)|BA',data) is not None or re.search('((M|m)aster)|MA|(PhD|phd|PHD)', data) is None):
-						qualified.append("Need YOE")
+							qualified.append("Need YOE")
+					elif re.search('[1-2].{1,10}(Y|y)ear', data) is not None:
+						qualified.append("Need Advanced Degree")
 					else:
 						qualified.append("False")
+
+					# Compatible technologies
+					languages.append("True") if re.search('(r|sql|python)[^a-z0-9]', data) is not None else languages.append("False")
+
+					# Compatible major
+					majors.append("True") if re.search('(economics)[^a-z0-9]', data) is not None else majors.append("False")
 
 			listings = [("job_title", jobs),
 						("company_name", companies),
 						("indeed_link", postings), 
 						("app_link", app_links), 
-						("qualified", qualified)]
+						("qualified", qualified), 
+						("tech_compatible", languages), 
+						("major_compatible", majors)]
 			temp_df = pd.DataFrame.from_items(listings)
+
 			temp_df = temp_df.assign(city = str(city))
 			temp_df = temp_df.assign(category = str(title))
 			df = df.append(temp_df, ignore_index = True)
 			time.sleep(1)
 
-df = df[["city", "company_name", "category", "job_title", "qualified", "app_link", "indeed_link"]]
+df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
+df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible"], ascending = [0, 0, 0])
 
-df.to_csv("H:/git_repo/indeed_scraping/results.csv", encoding='utf-8')
+df.to_csv("H:/git_repo/job_scraping/output.csv", encoding='utf-8', index=False)
