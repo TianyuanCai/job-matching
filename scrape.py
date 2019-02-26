@@ -57,9 +57,9 @@ for title in title_set:
 								app_links.append(link["href"])
 								break
 							else:
-								app_links.append("Unknown")
+								app_links.append("https://indeed.com" + a["href"])
 					else:
-						app_links.append("Unknown")
+						app_links.append("https://indeed.com" + a["href"])
 
 					# Whether within 2 YOE and Bachlor
 					data = str(job_soup.findAll(text = True)).lower()
@@ -89,7 +89,9 @@ for title in title_set:
 			temp_df = temp_df.assign(category = str(title))
 			df = df.append(temp_df, ignore_index = True)
 
-df = df.drop_duplicates()
+df = df[df.qualified == "True"]
+df = df.drop_duplicates(subset = ["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link"])
+df = df[~df.job_title.str.lower().str.contains("senior|manager|lead|staff|head|sr |financ|business analyst|brand analyst|specialist|engineer|designer|intern|contract")]
 df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
-df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible"], ascending = [0, 0, 0])
+df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible", "city", "company_name", "category"], ascending = [0, 0, 0, 0, 0, 1])
 df.to_csv("H:/git_repo/job_scraping/output.csv", encoding="utf-8", index=False)
