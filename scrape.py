@@ -89,6 +89,7 @@ for title in title_set:
 			temp_df = temp_df.assign(category = str(title))
 			df = df.append(temp_df, ignore_index = True)
 
+df = df.drop_duplicates()
 df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
 df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible"], ascending = [0, 0, 0])
 df.to_csv("H:/git_repo/job_scraping/output.csv", encoding="utf-8", index=False)
