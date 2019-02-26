@@ -12,9 +12,9 @@ import re
 #print(soup.prettify())
 
 # Execution
-max_results = 10
+max_results = 100
 title_set = ["data+scientist", "data+analyst", "product+analyst"]
-city_set = ["San+Francisco", "Seattle", "Portland", "Los+Angeles", "New+York"]
+city_set = ["San+Francisco", "Seattle", "Los+Angeles", "New+York", "Boston"]
 columns = ["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]
 df = pd.DataFrame(columns = columns)
 
@@ -22,7 +22,10 @@ for title in title_set:
 	for city in city_set:
 		for start in range(0, max_results, 10):
 			jobs, postings, app_links, qualified, plang, majors, companies = [], [], [], [], [], [], []
-			page = requests.get("https://www.indeed.com/jobs?as_and=" + title + "&as_phr=&as_any=bachelor%2C+BA&as_not=&as_ttl=&as_cmp=&jt=all&st=&as_src=&salary=&radius=50&l="+ city + "&fromage=any&limit=10&sort=&psf=advsrch&start=" + str(start))
+			page = requests.get("https://www.indeed.com/jobs?as_and=" + title + 
+					   "&as_phr=&as_any=bachelor%2C+BA&as_not=&as_ttl=&as_cmp=&jt=all&st=&as_src=&salary=&radius=50&l="+ city + 
+					   "&fromage=any&limit=10&sort=&psf=advsrch&start=" + str(start))
+			time.sleep(5)
 			soup = BeautifulSoup(page.text, "html.parser")
 
 			for div in soup.find_all(name="div", attrs={"class":"row"}):
@@ -42,6 +45,7 @@ for title in title_set:
 
 					# Job listing detail page
 					job_page = requests.get("https://indeed.com" + a["href"])
+					time.sleep(5)
 					job_soup = BeautifulSoup(job_page.text, "html.parser")
 
 					# Application link
@@ -69,10 +73,8 @@ for title in title_set:
 					else:
 						qualified.append("False")
 
-					# Compatible technologies
+					# Compatible technologies & major
 					plang.append("True") if re.search("(r|sql|python)[^a-z0-9]", data) is not None else plang.append("False")
-
-					# Compatible major
 					majors.append("True") if re.search("(economics)[^a-z0-9]", data) is not None else majors.append("False")
 
 			listings = [("job_title", jobs),
@@ -83,11 +85,9 @@ for title in title_set:
 						("tech_compatible", plang), 
 						("major_compatible", majors)]
 			temp_df = pd.DataFrame.from_items(listings)
-
 			temp_df = temp_df.assign(city = str(city))
 			temp_df = temp_df.assign(category = str(title))
 			df = df.append(temp_df, ignore_index = True)
-			time.sleep(1)
 
 df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
 df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible"], ascending = [0, 0, 0])
