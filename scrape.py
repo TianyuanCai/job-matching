@@ -12,7 +12,7 @@ import re
 #print(soup.prettify())
 
 # Execution
-max_results_per_city = 500
+max_results = 100
 title_set = ["data+scientist", "data+analyst", "product+analyst"]
 #city_set = ['San+Francisco', 'Seattle', 'Portland', 'Los+Angeles', 'New+York','Chicago', 'Pittsburgh', 'Austin']
 city_set = ['San+Francisco']
@@ -21,15 +21,8 @@ df = pd.DataFrame(columns = columns)
 
 for title in title_set:
 	for city in city_set:
-		for start in range(0, max_results_per_city, 10):
-			jobs = []
-			postings = []
-			app_links = []
-			qualified = []
-			languages = []
-			majors = []
-			companies = []
-
+		for start in range(0, max_results, 10):
+			jobs, postings, app_links, qualified, plang, majors, companies = [], [], [], [], [], [], []
 			page = requests.get('https://www.indeed.com/jobs?q='+title + '&l=' + str(city) + '&start=' + str(start))
 			soup = BeautifulSoup(page.text, "html.parser")
 
@@ -78,7 +71,7 @@ for title in title_set:
 						qualified.append("False")
 
 					# Compatible technologies
-					languages.append("True") if re.search('(r|sql|python)[^a-z0-9]', data) is not None else languages.append("False")
+					plang.append("True") if re.search('(r|sql|python)[^a-z0-9]', data) is not None else plang.append("False")
 
 					# Compatible major
 					majors.append("True") if re.search('(economics)[^a-z0-9]', data) is not None else majors.append("False")
@@ -88,7 +81,7 @@ for title in title_set:
 						("indeed_link", postings), 
 						("app_link", app_links), 
 						("qualified", qualified), 
-						("tech_compatible", languages), 
+						("tech_compatible", plang), 
 						("major_compatible", majors)]
 			temp_df = pd.DataFrame.from_items(listings)
 
@@ -99,5 +92,4 @@ for title in title_set:
 
 df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
 df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible"], ascending = [0, 0, 0])
-
 df.to_csv("H:/git_repo/job_scraping/output.csv", encoding='utf-8', index=False)
