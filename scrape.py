@@ -14,12 +14,15 @@ import re
 # Execution
 max_results = 100
 title_set = ["data+scientist", "data+analyst", "product+analyst"]
+title_test = ["data+scientist"]
+city_test = ["Los+Angeles"]
 city_set = ["San+Francisco", "Seattle", "Los+Angeles", "New+York", "Boston"]
 columns = ["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]
 df = pd.DataFrame(columns = columns)
 
-for title in title_set:
-	for city in city_set:
+
+for title in title_test:
+	for city in city_test:
 		for start in range(0, max_results, 10):
 			jobs, postings, app_links, qualified, plang, majors, companies = [], [], [], [], [], [], []
 			page = requests.get("https://www.indeed.com/jobs?as_and=" + title + 
@@ -84,9 +87,10 @@ for title in title_set:
 						("qualified", qualified), 
 						("tech_compatible", plang), 
 						("major_compatible", majors)]
-			temp_df = pd.DataFrame.from_items(listings)
+			temp_df = pd.DataFrame.from_dict(dict(listings))
 			temp_df = temp_df.assign(city = str(city))
 			temp_df = temp_df.assign(category = str(title))
+			print(temp_df)
 			df = df.append(temp_df, ignore_index = True)
 
 df = df[df.qualified == "True"]
@@ -94,4 +98,5 @@ df = df.drop_duplicates(subset = ["city", "company_name", "category", "job_title
 df = df[~df.job_title.str.lower().str.contains("senior|manager|lead|staff|head|sr |financ|business analyst|brand analyst|specialist|engineer|designer|intern|contract")]
 df = df[["city", "company_name", "category", "job_title", "qualified", "tech_compatible", "major_compatible", "app_link", "indeed_link"]]
 df = df.sort_values(by = ["qualified", "tech_compatible", "major_compatible", "city", "company_name", "category"], ascending = [0, 0, 0, 0, 0, 1])
-df.to_csv("H:/git_repo/job_scraping/output.csv", encoding="utf-8", index=False)
+df.to_csv(encoding="utf-8", index=False)
+
