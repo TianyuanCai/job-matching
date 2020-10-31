@@ -19,13 +19,11 @@ import requests
 from bs4 import BeautifulSoup
 from nltk.stem.snowball import SnowballStemmer
 from sentence_transformers import SentenceTransformer
-from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.feature_extraction.text import CountVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 from tqdm import tqdm
 
-from src.nlp import tokenize_and_stem, max_sum_sim, mmr
-
-stemmer = SnowballStemmer("english")
+from src.nlp import max_sum_sim, mmr
 
 # Execution
 title_set = ['data+scientist']
@@ -83,7 +81,7 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
             # get the entire job description
             job_description = job_soup.find(name='div', attrs={
                 'id': 'jobDescriptionText'}).text
-            descriptions.append(job_description.replace('\n', ''))
+            descriptions.append(job_description.replace('\n', ' '))
 
             # Application link
             application_links = job_soup.find_all(name='a', attrs={
