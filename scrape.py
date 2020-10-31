@@ -10,16 +10,22 @@ Oct 29, 2020
 Haowei Liu, Tianyuan Cai
 """
 
+import itertools
+import re
+import time
+from tqdm import tqdm
+
+import nltk
+import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
-import time
-import re
-import itertools
+from nltk.stem.snowball import SnowballStemmer
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+stemmer = SnowballStemmer("english")
 
 # Execution
-title_set = ['data+scientist', 'data+analyst', 'product+analyst']
-title_test = ['data+scientist']
+title_set = ['data+scientist']
 city_test = ['Los+Angeles']
 city_set = ['San+Francisco', 'Seattle', 'Los+Angeles', 'New+York', 'Boston']
 columns = ['city', 'company_name', 'category', 'job_title', 'qualified',
@@ -36,12 +42,25 @@ def format_job_link(title, city, start):
     return link
 
 
+def tokenize_and_stem(text):
+    tokens = [word for sent in nltk.sent_tokenize(text) for word in
+              nltk.word_tokenize(sent)]
+
+    filtered_tokens = []
+    # filter out any tokens not containing letters
+    for token in tokens:
+        if re.search('[a-zA-Z]', token):
+            filtered_tokens.append(token)
+    stems = [stemmer.stem(t) for t in filtered_tokens]
+    return stems
+
+
 df = pd.DataFrame(columns=columns)
 
-for title, city, start in itertools.product(title_test, city_test,
-                                            start_range):
-    jobs, postings, app_links, qualified, lang, majors, companies = \
-        [], [], [], [], [], [], []
+for title, city, start in tqdm(itertools.product(title_set, city_test,
+                                                 start_range)):
+    jobs, postings, app_links, qualified, lang, majors, companies, \
+    descriptions = [], [], [], [], [], [], [], []
 
     page = requests.get(format_job_link(title, city, start))
     time.sleep(5)
@@ -62,25 +81,19 @@ for title, city, start in itertools.product(title_test, city_test,
         for a in div.find_all(name='a', attrs={'data-tn-element': 'jobTitle'}):
             # Jobs titles
             jobs.append(''.join(a.text.strip()))
-            postings.append('https://indeed.com' + a['href'])
+            job_posting = 'https://indeed.com' + a['href']
+            postings.append(job_posting)
 
             # Job listing detail page
-            job_page = requests.get('https://indeed.com' + a['href'])
+            job_page = requests.get(job_posting)
             time.sleep(5)
 
             job_soup = BeautifulSoup(job_page.text, 'html.parser')
 
-            # todo get the entire job description
-
-            # todo take out the stop words
-
-            # todo tokenize
-
-            # todo find tf-idf
-
-            # todo extract keywords and add it as a separate column
-
-            # keywords should serve as a way to filter more easily
+            # get the entire job description
+            job_description = job_soup.find(name='div', attrs={
+                'id': 'jobDescriptionText'}).text
+            descriptions.append(job_description)
 
             # Application link
             application_links = job_soup.find_all(name='a', attrs={
@@ -128,21 +141,45 @@ for title, city, start in itertools.product(title_test, city_test,
                 ('app_link', app_links),
                 ('qualified', qualified),
                 ('tech_compatible', lang),
-                ('major_compatible', majors)]
+                ('major_compatible', majors),
+                ('description', descriptions)]
     temp_df = pd.DataFrame.from_dict(dict(listings))
     temp_df = temp_df.assign(city=str(city))
     temp_df = temp_df.assign(category=str(title))
     df = df.append(temp_df, ignore_index=True)
 
-df = df[df.qualified == 'True']
+    # todo to remove
+    break
+
+# unique job id based on title and company name
+df['id_job'] = df['job_title'] + df['company_name']
+
+# append a list of job descriptions for nltk
+token_dict = {}
+for i in df.index:
+    token_dict[df.loc[i, 'id_job']] = df.loc[i, 'description'].replace(
+        '\n', '')
+
+vectorizer = TfidfVectorizer(tokenizer=tokenize_and_stem, stop_words='english',
+                             decode_error='ignore', ngram_range=(1, 2))
+tdm = vectorizer.fit_transform(token_dict)
+feature_names = vectorizer.get_feature_names()
+
+# add keywords to list
+keyword_list = []
+for i in df.index:
+    keywords = pd.DataFrame(
+        tdm[i].T.todense(), index=vectorizer.get_feature_names(),
+        columns=["tfidf"]).sort_values(by=["tfidf"], ascending=False)
+    keywords = keywords[keywords['tfidf'] > 0]
+    keyword_list.append(keywords['tfidf'].to_json())
+
+df['keywords'] = keyword_list
+
+# evaluate qualifications
 df = df.drop_duplicates(
     subset=['city', 'company_name', 'category', 'job_title', 'qualified',
             'tech_compatible', 'major_compatible', 'app_link'])
-df = df[~df.job_title.str.lower().str.contains(
-    'senior|manager|lead|staff|head|sr |financ|business analyst|brand '
-    'analyst|specialist|engineer|designer|intern|contract')]
-df = df[['city', 'company_name', 'category', 'job_title', 'qualified',
-         'tech_compatible', 'major_compatible', 'app_link', 'indeed_link']]
 df = df.sort_values(
     by=['qualified', 'tech_compatible', 'major_compatible', 'city',
         'company_name', 'category'], ascending=[0, 0, 0, 0, 0, 1])
@@ -175,4 +212,3 @@ company-char
 # todo covert keywords (or their embeddings) as features
 
 # todo predict relationship between keywords and user's listing preference
-
