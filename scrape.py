@@ -34,6 +34,9 @@ columns = ['city', 'company_name', 'category', 'job_title', 'qualified',
 
 start_range = range(0, 100, 10)
 
+# keyword extraction config
+n_gram_range = (1, 2)
+
 
 def format_job_link(title, city, start):
     link = f'https://www.indeed.com/jobs?as_and=' \
@@ -41,6 +44,14 @@ def format_job_link(title, city, start):
            f'=all&st=&as_src=&salary=&radius=50&l=' \
            f'{city}&fromage=any&limit=10&sort=&psf=advsrch&start={str(start)}'
     return link
+
+
+def clean_str(text):
+    text = re.sub(r'\n|[0-9]{1,}|-|_', ' ', text)
+    text = re.sub(r'([A-Z][a-z])', r' \1', text)
+    text = re.sub(r'\s{1,}', ' ', text)
+
+    return text
 
 
 df = pd.DataFrame(columns=columns)
@@ -81,7 +92,7 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
             # get the entire job description
             job_description = job_soup.find(name='div', attrs={
                 'id': 'jobDescriptionText'}).text
-            descriptions.append(job_description.replace('\n', ' '))
+            descriptions.append(clean_str(job_description))
 
             # Application link
             application_links = job_soup.find_all(name='a', attrs={
@@ -144,11 +155,9 @@ keyword_list_mmr = []
 for i in tqdm(df.index):
     tmp_desc = df.loc[i, 'description']
 
-    n_gram_range = (1, 1)
-
     # Extract candidate words/phrases
-    count = CountVectorizer(ngram_range=n_gram_range,
-                            stop_words='english').fit([tmp_desc])
+    count = CountVectorizer(ngram_range=n_gram_range, stop_words='english'
+                            ).fit([tmp_desc])
     candidates = count.get_feature_names()
 
     # bert
@@ -156,7 +165,7 @@ for i in tqdm(df.index):
     doc_embedding = model.encode([tmp_desc])
     candidate_embeddings = model.encode(candidates)
 
-    top_n = 5
+    top_n = 10
     distances = cosine_similarity(doc_embedding, candidate_embeddings)
     keywords = [candidates[index] for index in distances.argsort()[0][-top_n:]]
 
