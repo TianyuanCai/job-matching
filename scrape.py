@@ -13,14 +13,17 @@ Haowei Liu, Tianyuan Cai
 import itertools
 import re
 import time
-from tqdm import tqdm
 
-import nltk
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from nltk.stem.snowball import SnowballStemmer
-from sklearn.feature_extraction.text import TfidfVectorizer
+from sentence_transformers import SentenceTransformer
+from sklearn.feature_extraction.text import TfidfVectorizer, CountVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from tqdm import tqdm
+
+from src.nlp import tokenize_and_stem, max_sum_sim, mmr
 
 stemmer = SnowballStemmer("english")
 
@@ -40,19 +43,6 @@ def format_job_link(title, city, start):
            f'=all&st=&as_src=&salary=&radius=50&l=' \
            f'{city}&fromage=any&limit=10&sort=&psf=advsrch&start={str(start)}'
     return link
-
-
-def tokenize_and_stem(text):
-    tokens = [word for sent in nltk.sent_tokenize(text) for word in
-              nltk.word_tokenize(sent)]
-
-    filtered_tokens = []
-    # filter out any tokens not containing letters
-    for token in tokens:
-        if re.search('[a-zA-Z]', token):
-            filtered_tokens.append(token)
-    stems = [stemmer.stem(t) for t in filtered_tokens]
-    return stems
 
 
 df = pd.DataFrame(columns=columns)
@@ -93,7 +83,7 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
             # get the entire job description
             job_description = job_soup.find(name='div', attrs={
                 'id': 'jobDescriptionText'}).text
-            descriptions.append(job_description)
+            descriptions.append(job_description.replace('\n', ''))
 
             # Application link
             application_links = job_soup.find_all(name='a', attrs={
@@ -151,30 +141,40 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
     # todo to remove
     break
 
-# unique job id based on title and company name
-df['id_job'] = df['job_title'] + df['company_name']
+keyword_list_max_sum = []
+keyword_list_mmr = []
+for i in tqdm(df.index):
+    tmp_desc = df.loc[i, 'description']
 
-# append a list of job descriptions for nltk
-token_dict = {}
-for i in df.index:
-    token_dict[df.loc[i, 'id_job']] = df.loc[i, 'description'].replace(
-        '\n', '')
+    n_gram_range = (1, 1)
 
-vectorizer = TfidfVectorizer(tokenizer=tokenize_and_stem, stop_words='english',
-                             decode_error='ignore', ngram_range=(1, 2))
-tdm = vectorizer.fit_transform(token_dict)
-feature_names = vectorizer.get_feature_names()
+    # Extract candidate words/phrases
+    count = CountVectorizer(ngram_range=n_gram_range,
+                            stop_words='english').fit([tmp_desc])
+    candidates = count.get_feature_names()
 
-# add keywords to list
-keyword_list = []
-for i in df.index:
-    keywords = pd.DataFrame(
-        tdm[i].T.todense(), index=vectorizer.get_feature_names(),
-        columns=["tfidf"]).sort_values(by=["tfidf"], ascending=False)
-    keywords = keywords[keywords['tfidf'] > 0]
-    keyword_list.append(keywords['tfidf'].to_json())
+    # bert
+    model = SentenceTransformer('distilbert-base-nli-mean-tokens')
+    doc_embedding = model.encode([tmp_desc])
+    candidate_embeddings = model.encode(candidates)
 
-df['keywords'] = keyword_list
+    top_n = 5
+    distances = cosine_similarity(doc_embedding, candidate_embeddings)
+    keywords = [candidates[index] for index in distances.argsort()[0][-top_n:]]
+
+    # nr candidate to be tuned
+    keywords_max_sum_sim = max_sum_sim(doc_embedding, candidate_embeddings,
+                                       candidates, top_n=top_n,
+                                       nr_candidates=20)
+    keywords_mmr = mmr(doc_embedding, candidate_embeddings, candidates,
+                       top_n=top_n,
+                       diversity=0.7)
+
+    keyword_list_max_sum.append(keywords_max_sum_sim)
+    keyword_list_mmr.append(keywords_mmr)
+
+df['keywords_max_sum'] = keyword_list_max_sum
+df['keywords_mmr'] = keyword_list_mmr
 
 # evaluate qualifications
 df = df.drop_duplicates(
