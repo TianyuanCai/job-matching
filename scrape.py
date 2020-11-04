@@ -26,21 +26,22 @@ from tqdm import tqdm
 from src.nlp import max_sum_sim, mmr
 
 # Execution
-title_set = ['data+scientist']
-city_test = ['Los+Angeles']
+title_set = ['data+analyst']
+city_test = ['San+Francisco']
 city_set = ['San+Francisco', 'Seattle', 'Los+Angeles', 'New+York', 'Boston']
 columns = ['city', 'company_name', 'category', 'job_title', 'qualified',
            'tech_compatible', 'major_compatible', 'app_link', 'indeed_link']
 
-start_range = range(0, 100, 10)
+start_range = range(0, 50, 10)
 
 # keyword extraction config
 n_gram_range = (1, 2)
 
 
 def format_job_link(title, city, start):
+
     link = f'https://www.indeed.com/jobs?as_and=' \
-           f'{title}&as_phr=&as_any=bachelor%2CBA&as_not=&as_ttl=&as_cmp=&jt' \
+           f'{title}&as_not=&as_ttl=&as_cmp=&jt' \
            f'=all&st=&as_src=&salary=&radius=50&l=' \
            f'{city}&fromage=any&limit=10&sort=&psf=advsrch&start={str(start)}'
     return link
@@ -53,10 +54,9 @@ def clean_str(text):
 
     return text
 
-
 df = pd.DataFrame(columns=columns)
 
-for title, city, start in tqdm(itertools.product(title_set, city_test,
+for title, city, start in tqdm(itertools.product(title_set, city_set,
                                                  start_range)):
     jobs, postings, app_links, qualified, lang, majors, companies, \
     descriptions = [], [], [], [], [], [], [], []
@@ -78,8 +78,7 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
 
         # here we go through each job listing
         for a in div.find_all(name='a', attrs={'data-tn-element': 'jobTitle'}):
-            # Jobs titles
-            jobs.append(''.join(a.text.strip()))
+
             job_posting = 'https://indeed.com' + a['href']
             postings.append(job_posting)
 
@@ -89,9 +88,26 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
 
             job_soup = BeautifulSoup(job_page.text, 'html.parser')
 
+            # Skip error page
+            if job_soup.find(name='title') and job_soup.find(name='title').text == 'Error 404 Not Found':
+                jobs.append('invalid URL')
+                app_links.append('invalid URL')
+                qualified.append('invalid URL')
+                lang.append('invalid URL')
+                majors.append('invalid URL')
+                descriptions.append('invalid URL')
+                break
+
+            # Jobs titles
+            jobs.append(''.join(a.text.strip()))
+
             # get the entire job description
-            job_description = job_soup.find(name='div', attrs={
-                'id': 'jobDescriptionText'}).text
+            desc = job_soup.find(name='div', attrs={'id': 'jobDescriptionText'})
+            if desc:
+                job_description = desc.text
+            else:
+                job_description = "Missing job description"
+                print("Missing job description")
             descriptions.append(clean_str(job_description))
 
             # Application link
@@ -109,19 +125,20 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
             else:
                 app_links.append('https://indeed.com' + a['href'])
 
-            # Whether within 2 YOE and Bachlor
+            # Whether within 2 YOE and Bachelor
+            # TODO: YOE can be customized
             data = str(job_soup.findAll(text=True)).lower()
             if (re.search('(bachelor|ba)[^a-z0-9]',
                           data) is not None or re.search(
                 '(master|ms|ma|phd)[^a-z0-9]', data) is None):
                 if re.search('[1-2].{1,10}(Y|y)ear', data) is not None:
-                    qualified.append('True')
+                    qualified.append('Bachelor Degree')
                 else:
                     qualified.append('Need YOE')
             elif re.search('[1-2].{1,10}(Y|y)ear', data) is not None:
                 qualified.append('Need Advanced Degree')
             else:
-                qualified.append('False')
+                qualified.append('Need More Than 2 YOE')
 
             # Compatible language
             if re.search('(r|sql|python)[^a-z0-9]', data) is not None:
@@ -129,10 +146,13 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
             else:
                 lang.append('False')
 
+            # TODO: identify a list of majors
             if re.search('(economics)[^a-z0-9]', data) is not None:
                 majors.append('True')
             else:
                 majors.append('False')
+
+            # TODO: US work authorization? can be extracted from description
 
     listings = [('job_title', jobs),
                 ('company_name', companies),
@@ -142,80 +162,18 @@ for title, city, start in tqdm(itertools.product(title_set, city_test,
                 ('tech_compatible', lang),
                 ('major_compatible', majors),
                 ('description', descriptions)]
+    d_listings = dict(listings)
     temp_df = pd.DataFrame.from_dict(dict(listings))
     temp_df = temp_df.assign(city=str(city))
     temp_df = temp_df.assign(category=str(title))
     df = df.append(temp_df, ignore_index=True)
 
-    # todo to remove
-    break
-
-keyword_list_max_sum = []
-keyword_list_mmr = []
-for i in tqdm(df.index):
-    tmp_desc = df.loc[i, 'description']
-
-    # Extract candidate words/phrases
-    count = CountVectorizer(ngram_range=n_gram_range, stop_words='english'
-                            ).fit([tmp_desc])
-    candidates = count.get_feature_names()
-
-    # bert
-    model = SentenceTransformer('distilbert-base-nli-mean-tokens')
-    doc_embedding = model.encode([tmp_desc])
-    candidate_embeddings = model.encode(candidates)
-
-    top_n = 10
-    distances = cosine_similarity(doc_embedding, candidate_embeddings)
-    keywords = [candidates[index] for index in distances.argsort()[0][-top_n:]]
-
-    # nr candidate to be tuned
-    keywords_max_sum_sim = max_sum_sim(doc_embedding, candidate_embeddings,
-                                       candidates, top_n=top_n,
-                                       nr_candidates=20)
-    keywords_mmr = mmr(doc_embedding, candidate_embeddings, candidates,
-                       top_n=top_n,
-                       diversity=0.7)
-
-    keyword_list_max_sum.append(keywords_max_sum_sim)
-    keyword_list_mmr.append(keywords_mmr)
-
-df['keywords_max_sum'] = keyword_list_max_sum
-df['keywords_mmr'] = keyword_list_mmr
-
-# evaluate qualifications
+# TODO: whether to include unique application link
 df = df.drop_duplicates(
     subset=['city', 'company_name', 'category', 'job_title', 'qualified',
-            'tech_compatible', 'major_compatible', 'app_link'])
+            'tech_compatible', 'major_compatible'])
 df = df.sort_values(
     by=['qualified', 'tech_compatible', 'major_compatible', 'city',
         'company_name', 'category'], ascending=[0, 0, 0, 0, 0, 1])
-df.to_csv('output.csv', encoding='utf-8', index=False)
+df.to_csv('da_scraped_lists.csv', encoding='utf-8', index=False)
 
-# recommend jobs based on user's rating (outcome)
-# as they provide more rating, the model performance will improve
-# input features can be a variety of factors
-
-"""
-# design for personalization method over time
-
-OUTPUT:
-user rating (likert scale 1-7)
-
-INPUT:
-description-char
-- keywords
-- sentiment of the job description
-
-job-char
-- locations
-- industry
-
-company-char
-- current rating of the company on glassdoor/indeed
-- match w/ the candidate's current profile
-"""
-
-# todo covert keywords (or their embeddings) as features
-
-# todo predict relationship between keywords and user's listing preference
